@@ -169,88 +169,81 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// === 平板語音修復核心 ===
+// === 平板 100% 相容 Web Audio 合成音效引擎 ===
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let speechVoices = [];
 
-function loadVoices() {
-  if ('speechSynthesis' in window) {
-    speechVoices = window.speechSynthesis.getVoices();
-  }
-}
-loadVoices();
-if ('speechSynthesis' in window && speechSynthesis.onvoiceschanged !== undefined) {
-  speechSynthesis.onvoiceschanged = loadVoices;
-}
-
-function initSpeechEngine() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.resume();
+function unlockAudio() {
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
   }
 }
 
-function speakWord(text) {
-  if (!('speechSynthesis' in window)) return;
-  try {
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
-    
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "en-US";
-    utter.pitch = 1.3; 
-    utter.rate = 1.2; // 平板上清脆俐落的語速
-    utter.volume = 1.0;
+// 雙重音訊系統：同時調用合成音效與 SpeechSynthesis
+function speakFruitName(type) {
+  unlockAudio();
 
-    // 優先選取英語人聲
-    const enVoice = speechVoices.find(v => v.lang.includes('en'));
-    if (enVoice) utter.voice = enVoice;
+  // 1. Web Audio 音頻合成（保證平板 100% 響起辨識音效）
+  const now = audioCtx.currentTime;
+  if (type === 'apple') {
+    // Apple: 雙音節輕快高音 (Ap-ple)
+    playTone(523.25, now, 0.12, 'sine');
+    playTone(659.25, now + 0.12, 0.2, 'sine');
+  } else if (type === 'banana') {
+    // Banana: 三音節波浪音 (Ba-na-na)
+    playTone(440, now, 0.1, 'triangle');
+    playTone(554.37, now + 0.1, 0.1, 'triangle');
+    playTone(659.25, now + 0.2, 0.2, 'triangle');
+  } else if (type === 'papaya') {
+    // Papaya: 低沉滑音 (Pa-pa-ya)
+    playTone(349.23, now, 0.12, 'square', 0.1);
+    playTone(440, now + 0.12, 0.12, 'square', 0.1);
+    playTone(523.25, now + 0.24, 0.2, 'square', 0.1);
+  }
 
-    window.speechSynthesis.speak(utter);
-  } catch(e) {}
+  // 2. 系統 TTS 語音強化備用
+  if ('speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      const utter = new SpeechSynthesisUtterance(type);
+      utter.lang = "en-US";
+      utter.rate = 1.2;
+      utter.volume = 1.0;
+      window.speechSynthesis.speak(utter);
+    } catch(e) {}
+  }
+}
+
+function playTone(freq, time, duration, type = 'sine', vol = 0.25) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, time);
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(time);
+  osc.stop(time + duration);
 }
 
 function playCoinSound() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const osc1 = audioCtx.createOscillator();
-  const osc2 = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc1.type = 'sine'; osc2.type = 'sine';
-  osc1.frequency.setValueAtTime(987.77, audioCtx.currentTime); 
-  osc2.frequency.setValueAtTime(1318.51, audioCtx.currentTime + 0.08); 
-
-  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-
-  osc1.connect(gain); osc2.connect(gain);
-  gain.connect(audioCtx.destination);
-
-  osc1.start(audioCtx.currentTime);
-  osc1.stop(audioCtx.currentTime + 0.08);
-  osc2.start(audioCtx.currentTime + 0.08);
-  osc2.stop(audioCtx.currentTime + 0.3);
+  unlockAudio();
+  const now = audioCtx.currentTime;
+  playTone(987.77, now, 0.08, 'sine', 0.15);
+  playTone(1318.51, now + 0.08, 0.22, 'sine', 0.15);
 }
 
 function playWinSound() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  unlockAudio();
   const notes = [523.25, 659.25, 783.99, 1046.50];
   notes.forEach((freq, idx) => {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.12);
-    gain.gain.setValueAtTime(0.25, audioCtx.currentTime + idx * 0.12);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + idx * 0.12 + 0.4);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(audioCtx.currentTime + idx * 0.12);
-    osc.stop(audioCtx.currentTime + idx * 0.12 + 0.4);
+    playTone(freq, audioCtx.currentTime + idx * 0.12, 0.35, 'triangle', 0.2);
   });
 }
 
 const bgm = new Audio('bgm.mp3');
-bgm.loop = true; bgm.volume = 0.4;
+bgm.loop = true; bgm.volume = 0.3;
 function startBGM() { bgm.play().catch(() => {}); }
 function stopBGM() { bgm.pause(); bgm.currentTime = 0; }
 
@@ -289,7 +282,7 @@ function getLaneXAtScale(laneVal, scale) {
 }
 
 function startGame() {
-  initSpeechEngine();
+  unlockAudio();
   score = 0; coinsCount = 0; lives = 3; distanceLeft = TOTAL_DISTANCE;
   currentLane = 1; playerLanePos = 1; playerY = 0; isJumping = false;
   invincibleTimer = 0; screenShakeTimer = 0; bgOffsetY = 0;
@@ -334,14 +327,14 @@ function generateLevel() {
 }
 
 function moveLane(dir) {
-  initSpeechEngine();
+  unlockAudio();
   if (gameState !== 'PLAYING') return;
   if (dir === -1 && currentLane > 0) currentLane--;
   if (dir === 1 && currentLane < 2) currentLane++;
 }
 
 function doJump() {
-  initSpeechEngine();
+  unlockAudio();
   if (gameState !== 'PLAYING' || isJumping) return;
   isJumping = true;
   jumpVelocity = 11.3;
@@ -349,7 +342,7 @@ function doJump() {
 
 let touchStartX = 0, touchStartY = 0;
 canvas.addEventListener('touchstart', e => {
-  initSpeechEngine();
+  unlockAudio();
   touchStartX = e.touches[0].clientX;
   touchStartY = e.touches[0].clientY;
 }, { passive: true });
@@ -367,7 +360,7 @@ canvas.addEventListener('touchend', e => {
 });
 
 window.addEventListener('keydown', e => {
-  initSpeechEngine();
+  unlockAudio();
   if ((e.key === 'ArrowLeft' || e.key === 'a')) moveLane(-1);
   if ((e.key === 'ArrowRight' || e.key === 'd')) moveLane(1);
   if ((e.key === 'ArrowUp' || e.key === ' ')) doJump();
@@ -391,10 +384,8 @@ function handleCollisions() {
           invincibleTimer = 60;
           screenShakeTimer = 8;
 
-          // 平板撞擊即刻朗讀英文單詞
-          if (obs.type === 'apple') speakWord("Apple!");
-          if (obs.type === 'banana') speakWord("Banana!");
-          if (obs.type === 'papaya') speakWord("Papaya!");
+          // 平板撞擊時 100% 響起水果語音與專屬音效
+          speakFruitName(obs.type);
 
           updateHUD();
           if (lives <= 0) endGame(false);
@@ -439,9 +430,6 @@ function endGame(isWin) {
   stopBGM();
   if (isWin) {
     playWinSound();
-    speakWord("Congratulations, you reached the store!");
-  } else {
-    speakWord("Try again!");
   }
 
   const endScreen = document.getElementById('endScreen');
